@@ -1,19 +1,19 @@
 import dotenv from "dotenv";
 import bs58 from "bs58";
 import {
-  Connection,
-  Keypair,
-  Transaction,
-  PublicKey,
-  SystemProgram,
+    Connection,
+    Keypair,
+    Transaction,
+    PublicKey,
+    SystemProgram,
 } from "@solana/web3.js";
 import got from "got";
 import { Wallet } from "@project-serum/anchor";
 import promiseRetry from "promise-retry";
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID,
-  Token,
-  TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    Token,
+    TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
 console.log({ dotenv });
@@ -26,7 +26,7 @@ const getRpcEndPoint = () => {
 }
 const connection = new Connection(getRpcEndPoint());
 const wallet = new Wallet(
-  Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || ""))
+    Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || ""))
 );
 
 const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -34,106 +34,106 @@ const SOL_MINT = "So11111111111111111111111111111111111111112";
 
 // wsol account
 const createWSolAccount = async () => {
-  const wsolAddress = await Token.getAssociatedTokenAddress(
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    TOKEN_PROGRAM_ID,
-    new PublicKey(SOL_MINT),
-    wallet.publicKey
-  );
-
-  const wsolAccount = await connection.getAccountInfo(wsolAddress);
-
-  if (!wsolAccount) {
-    const transaction = new Transaction({
-      feePayer: wallet.publicKey,
-    });
-    const instructions = [];
-
-    instructions.push(
-      await Token.createAssociatedTokenAccountInstruction(
+    const wsolAddress = await Token.getAssociatedTokenAddress(
         ASSOCIATED_TOKEN_PROGRAM_ID,
         TOKEN_PROGRAM_ID,
         new PublicKey(SOL_MINT),
-        wsolAddress,
-        wallet.publicKey,
         wallet.publicKey
-      )
     );
 
-    // fund 1 sol to the account
-    instructions.push(
-      SystemProgram.transfer({
-        fromPubkey: wallet.publicKey,
-        toPubkey: wsolAddress,
-        lamports: 1_000_000_000, // 1 sol
-      })
-    );
+    const wsolAccount = await connection.getAccountInfo(wsolAddress);
 
-    instructions.push(
-      // This is not exposed by the types, but indeed it exists
-      Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, wsolAddress)
-    );
+    if (!wsolAccount) {
+        const transaction = new Transaction({
+            feePayer: wallet.publicKey,
+        });
+        const instructions = [];
 
-    transaction.add(...instructions);
-    transaction.recentBlockhash = await (
-      await connection.getRecentBlockhash()
-    ).blockhash;
-    transaction.partialSign(wallet.payer);
-    const result = await connection.sendTransaction(transaction, [
-      wallet.payer,
-    ]);
-    console.log({ result });
-  }
+        instructions.push(
+            await Token.createAssociatedTokenAccountInstruction(
+                ASSOCIATED_TOKEN_PROGRAM_ID,
+                TOKEN_PROGRAM_ID,
+                new PublicKey(SOL_MINT),
+                wsolAddress,
+                wallet.publicKey,
+                wallet.publicKey
+            )
+        );
 
-  return wsolAccount;
+        // fund 1 sol to the account
+        instructions.push(
+            SystemProgram.transfer({
+                fromPubkey: wallet.publicKey,
+                toPubkey: wsolAddress,
+                lamports: 1_000_000_000, // 1 sol
+            })
+        );
+
+        instructions.push(
+            // This is not exposed by the types, but indeed it exists
+            Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, wsolAddress)
+        );
+
+        transaction.add(...instructions);
+        transaction.recentBlockhash = await (
+            await connection.getRecentBlockhash()
+        ).blockhash;
+        transaction.partialSign(wallet.payer);
+        const result = await connection.sendTransaction(transaction, [
+            wallet.payer,
+        ]);
+        console.log({ result });
+    }
+
+    return wsolAccount;
 };
 
 const getCoinQuote = (inputMint, outputMint, amount) =>
-  got
-    .get(
-      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.01`
-    )
-    .json();
+    got
+        .get(
+            `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.01`
+        )
+        .json();
 
 const getTransaction = (route) => {
-  return got
-    .post("https://quote-api.jup.ag/v1/swap", {
-      json: {
-        route: route,
-        userPublicKey: wallet.publicKey.toString(),
-        // to make sure it doesnt close the sol account
-        wrapUnwrapSOL: false,
-      },
-    })
-    .json();
+    return got
+        .post("https://quote-api.jup.ag/v1/swap", {
+            json: {
+                route: route,
+                userPublicKey: wallet.publicKey.toString(),
+                // to make sure it doesnt close the sol account
+                wrapUnwrapSOL: false,
+            },
+        })
+        .json();
 };
 
 const getConfirmTransaction = async (txid) => {
-  const res = await promiseRetry(
-    async (retry, attempt) => {
-      let txResult = await connection.getTransaction(txid, {
-        commitment: "confirmed",
-      });
+    const res = await promiseRetry(
+        async (retry, attempt) => {
+            let txResult = await connection.getTransaction(txid, {
+                commitment: "confirmed",
+            });
 
-      if (!txResult) {
-        const error = new Error("Transaction was not confirmed");
-        error.txid = txid;
+            if (!txResult) {
+                const error = new Error("Transaction was not confirmed");
+                error.txid = txid;
 
-        retry(error);
-        return;
-      }
-      return txResult;
-    },
-    {
-      retries: 40,
-      minTimeout: 500,
-      maxTimeout: 1000,
+                retry(error);
+                return;
+            }
+            return txResult;
+        },
+        {
+            retries: 40,
+            minTimeout: 500,
+            maxTimeout: 1000,
+        }
+    );
+    if (res.meta.err) {
+        throw new Error("Transaction failed");
     }
-  );
-  if (res.meta.err) {
-    throw new Error("Transaction failed");
-  }
-  return txid;
+    return txid;
 };
 
 // require wsol to start trading, this function create your wsol account and fund 1 SOL to it
@@ -151,57 +151,56 @@ var transactionProfit = 0;
 var transactionsAttempted = 0;
 var solSpentOnTransactions = 0;
 while (true) {
-  iterationsTotal++;
-  transactionProfit = 0;
-  // 0.1 SOL
-  console.log(`Iteration #: ${iterationsTotal} | Checking quotes using ${initial} usdc as input amount...`);
-  const usdcToSol = await getCoinQuote(USDC_MINT, SOL_MINT, initial);
-  const solToUsdc = await getCoinQuote( SOL_MINT,  USDC_MINT, usdcToSol.data[0].outAmount);
-  const outAmount = solToUsdc.data[0].outAmount;
-  // when outAmount more than initial
-  if (outAmount > initial) {
-      transactionsAttempted++;
-      await Promise.all(
-      [usdcToSol.data[0], solToUsdc.data[0]].map(async (route) => {
-        const { setupTransaction, swapTransaction, cleanupTransaction } =
-          await getTransaction(route);
+    iterationsTotal++;
+    transactionProfit = 0;
+    // 0.1 SOL
+    console.log(`Iteration #: ${iterationsTotal} | Checking quotes using ${initial} usdc as input amount...`);
+    const usdcToUsdc = await getCoinQuote(USDC_MINT, USDC_MINT, initial);
+    const outAmount = usdcToUsdc.data[0].outAmount;
+    // when outAmount more than initial
+    if (outAmount > initial) {
+        transactionsAttempted++;
         await Promise.all(
-          [setupTransaction, swapTransaction, cleanupTransaction]
-            .filter(Boolean)
-            .map(async (serializedTransaction) => {
-              // get transaction object from serialized transaction
-              const transaction = Transaction.from(
-                Buffer.from(serializedTransaction, "base64")
-              );
-              // perform the swap
-              // Transaction might failed or dropped
-              const txid = await connection.sendTransaction(
-                transaction,
-                [wallet.payer],
-                {
-                  skipPreflight: true,
-                }
-              );
-              try {
-                await getConfirmTransaction(txid);
-                  console.log(`Success: https://solscan.io/tx/${txid}`);
-                  successfulAttempts++;
-                  solSpentOnTransactions+=solTransactionFee;
-              } catch (e) {
-                console.log(`Failed: https://solscan.io/tx/${txid}`);
-                failedAttempts++;
-                solSpentOnTransactions+=solTransactionFee;
-              }
+            [usdcToUsdc.data[0]].map(async (route) => {
+                const { setupTransaction, swapTransaction, cleanupTransaction } =
+                    await getTransaction(route);
+                await Promise.all(
+                    [setupTransaction, swapTransaction, cleanupTransaction]
+                        .filter(Boolean)
+                        .map(async (serializedTransaction) => {
+                            // get transaction object from serialized transaction
+                            const transaction = Transaction.from(
+                                Buffer.from(serializedTransaction, "base64")
+                            );
+                            // perform the swap
+                            // Transaction might failed or dropped
+                            const txid = await connection.sendTransaction(
+                                transaction,
+                                [wallet.payer],
+                                {
+                                    skipPreflight: true,
+                                }
+                            );
+                            try {
+                                await getConfirmTransaction(txid);
+                                console.log(`Success: https://solscan.io/tx/${txid}`);
+                                successfulAttempts++;
+                                solSpentOnTransactions+=solTransactionFee;
+                            } catch (e) {
+                                console.log(`Failed: https://solscan.io/tx/${txid}`);
+                                failedAttempts++;
+                                solSpentOnTransactions+=solTransactionFee;
+                            }
+                        })
+                );
             })
         );
-      })
-    );
-      transactionProfit = (solToUsdc.data[0].outAmount / 1000000) - initialDecimal;
-      totalProfit += transactionProfit;
-  }
-    console.log( `-Quote information: USDC_TO_SOL ->  ${usdcToSol.data[0].outAmount} | SOL_TO_USDC ->  ${outAmount} | SOL_USDC_W_SLIPPAGE -> ${solToUsdc.data[0].outAmountWithSlippage} | OUT_AMOUNT > INITIAL: ${outAmount > initial} `);
+        transactionProfit = (usdcToUsdc.data[0].outAmount / 1000000) - initialDecimal;
+        totalProfit += transactionProfit;
+    }
+    console.log( `-Quote information: USDC_TO_USDC ->  ${outAmount} | OUT_AMOUNT_W_SLIPPAGE -> ${usdcToUsdc.data[0].outAmountWithSlippage} | OUT_AMOUNT > INITIAL: ${outAmount > initial} `);
     console.log(
-      `-Transaction information ${transactionsAttempted} | Successful : ${successfulAttempts} | Failed : ${failedAttempts} `);
+        `-Transaction information ${transactionsAttempted} | Successful : ${successfulAttempts} | Failed : ${failedAttempts} `);
     console.log( `-Profit information: Attempted profit: ${transactionProfit} | Total attempted profit: ${totalProfit} | Fees: ${solSpentOnTransactions} sol`);
     console.log("--------------------------------------------------------------------------------------");
 }
