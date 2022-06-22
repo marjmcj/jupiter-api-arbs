@@ -19,9 +19,12 @@ import {
 console.log({ dotenv });
 dotenv.config();
 
-// This is a free Solana RPC endpoint. It may have ratelimit and sometimes
-// invalid cache. I will recommend using a paid RPC endpoint.
-const connection = new Connection("https://solana-api.projectserum.com");
+const getRpcEndPoint = () => {
+    // If RPC_END_POINT is not defined it will default to a free Solana RPC endpoint.
+    // It may have ratelimit and sometimes invalid cache. It is recommended to use a  paid RPC endpoint.
+    return process.env?.RPC_END_POINT || "https://solana-api.projectserum.com";
+}
+const connection = new Connection(getRpcEndPoint());
 const wallet = new Wallet(
   Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || ""))
 );
@@ -88,7 +91,7 @@ const createWSolAccount = async () => {
 const getCoinQuote = (inputMint, outputMint, amount) =>
   got
     .get(
-      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.2`
+      `https://quote-api.jup.ag/v1/quote?outputMint=${outputMint}&inputMint=${inputMint}&amount=${amount}&slippage=0.01`
     )
     .json();
 
@@ -137,25 +140,31 @@ const getConfirmTransaction = async (txid) => {
 await createWSolAccount();
 
 // initial 20 USDC for quote
-const initial = 20_000_000;
-
+const initial = 200_000_000;
+const initialDecimal = 200;
+const solTransactionFee = 0.000005;
+var totalProfit = 0;
+var iterationsTotal = 0;
+var successfulAttempts = 0;
+var failedAttempts = 0;
+var transactionProfit = 0;
+var transactionsAttempted = 0;
+var solSpentOnTransactions = 0;
 while (true) {
+  iterationsTotal++;
+  transactionProfit = 0;
   // 0.1 SOL
+  console.log(`Iteration #: ${iterationsTotal} | Checking quotes using ${initial} usdc as input amount...`);
   const usdcToSol = await getCoinQuote(USDC_MINT, SOL_MINT, initial);
-
-  const solToUsdc = await getCoinQuote(
-    SOL_MINT,
-    USDC_MINT,
-    usdcToSol.data[0].outAmount
-  );
-
+  const solToUsdc = await getCoinQuote( SOL_MINT,  USDC_MINT, usdcToSol.data[0].outAmount);
+  const outAmount = solToUsdc.data[0].outAmount;
   // when outAmount more than initial
-  if (solToUsdc.data[0].outAmount > initial) {
-    await Promise.all(
+  if (outAmount > initial) {
+      transactionsAttempted++;
+      await Promise.all(
       [usdcToSol.data[0], solToUsdc.data[0]].map(async (route) => {
         const { setupTransaction, swapTransaction, cleanupTransaction } =
           await getTransaction(route);
-
         await Promise.all(
           [setupTransaction, swapTransaction, cleanupTransaction]
             .filter(Boolean)
@@ -175,13 +184,24 @@ while (true) {
               );
               try {
                 await getConfirmTransaction(txid);
-                console.log(`Success: https://solscan.io/tx/${txid}`);
+                  console.log(`Success: https://solscan.io/tx/${txid}`);
+                  successfulAttempts++;
+                  solSpentOnTransactions+=solTransactionFee;
               } catch (e) {
                 console.log(`Failed: https://solscan.io/tx/${txid}`);
+                failedAttempts++;
+                solSpentOnTransactions+=solTransactionFee;
               }
             })
         );
       })
     );
+      transactionProfit = (solToUsdc.data[0].outAmount / 1000000) - initialDecimal;
+      totalProfit += transactionProfit;
   }
+    console.log( `-Quote information: USDC_TO_SOL ->  ${usdcToSol.data[0].outAmount} | SOL_TO_USDC ->  ${outAmount} | SOL_USDC_W_SLIPPAGE -> ${solToUsdc.data[0].outAmountWithSlippage} | OUT_AMOUNT > INITIAL: ${outAmount > initial} `);
+    console.log(
+      `-Transaction information ${transactionsAttempted} | Successful : ${successfulAttempts} | Failed : ${failedAttempts} `);
+    console.log( `-Profit information: Attempted profit: ${transactionProfit} | Total attempted profit: ${totalProfit} | Fees: ${solSpentOnTransactions} sol`);
+    console.log("--------------------------------------------------------------------------------------");
 }
